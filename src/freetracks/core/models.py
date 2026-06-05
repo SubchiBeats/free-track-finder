@@ -68,6 +68,7 @@ class Track(BaseModel):
 
     # === Download Info ===
     download_url: Optional[str] = None
+    preview_url: Optional[str] = None  # Streamable audio URL for in-browser preview
     download_type: DownloadType = DownloadType.DIRECT
     file_format: AudioFormat = AudioFormat.UNKNOWN
     file_size_bytes: Optional[int] = None

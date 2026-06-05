@@ -1,15 +1,21 @@
 """Bandcamp scanner — finds 'name your price' releases with $0 minimum.
 
-Bandcamp doesn't have a public API, so this scanner scrapes search results
-and individual release pages. It only surfaces tracks where the artist has
-set a $0 minimum price (true free downloads).
+Bandcamp's public search page is now a JavaScript-rendered shell, so the old
+HTML-scraping approach returned nothing. Instead this scanner uses Bandcamp's
+internal search API (the same ``bcsearch_public_api`` endpoint the site's own
+search box calls) to find candidate tracks, then fetches each track page and
+reads the embedded ``data-tralbum`` JSON blob to confirm the track is a true
+$0 name-your-price download and to pull rich metadata (duration, artwork,
+tags, release date, and a streamable preview URL).
 
-Rate limiting is strict here — Bandcamp is an artist-first platform and
-we want to be respectful.
+Rate limiting is strict here — Bandcamp is an artist-first platform and we
+want to be respectful. Because confirming "free" requires one page fetch per
+candidate, we stop as soon as we have enough free tracks.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime
@@ -29,6 +35,18 @@ from freetracks.utils.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
+_SEARCH_API = "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic"
+
+# A browser-like User-Agent — Bandcamp's API/pages are unfriendly to obvious bots.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+# How many search candidates to inspect per query before giving up. Free
+# name-your-price tracks are a minority of results, so we look past max_results.
+_MAX_CANDIDATES = 40
+
 
 class BandcampScanner(PlatformScanner):
     """Scanner for Bandcamp 'name your price' free releases."""
@@ -41,216 +59,137 @@ class BandcampScanner(PlatformScanner):
         super().__init__(rate_limiter or RateLimiter(1.0))
 
     async def search(self, query: str, max_results: int = 50) -> list[Track]:
-        """Search Bandcamp for name-your-price tracks."""
+        """Search Bandcamp for name-your-price ($0) tracks."""
+        candidates = await self._search_candidates(query)
+        if not candidates:
+            logger.info(f"Bandcamp: no search candidates for '{query}'")
+            return []
+
         tracks: list[Track] = []
-        page = 1
-
-        while len(tracks) < max_results:
-            search_url = f"{self.base_url}/search"
-            params = {
-                "q": query,
-                "item_type": "t",  # Tracks only
-                "page": page,
-            }
-
-            try:
-                response = await self._get(search_url, params=params)
-            except httpx.HTTPStatusError as e:
-                logger.warning(f"Bandcamp search error: {e.response.status_code}")
+        for url in candidates[:_MAX_CANDIDATES]:
+            if len(tracks) >= max_results:
                 break
-            except Exception as e:
-                logger.warning(f"Bandcamp request failed: {e}")
-                break
-
-            soup = BeautifulSoup(response.text, "html.parser")
-            results = soup.select(".result-items .searchresult")
-
-            if not results:
-                break
-
-            for result in results:
-                if len(tracks) >= max_results:
-                    break
-
-                track = self._parse_search_result(result)
-                if track is not None:
-                    tracks.append(track)
-
-            # Check if there are more pages
-            next_link = soup.select_one(".pager .next a")
-            if next_link:
-                page += 1
-            else:
-                break
+            track = await self._fetch_free_track(url)
+            if track is not None:
+                tracks.append(track)
 
         logger.info(f"Bandcamp: found {len(tracks)} name-your-price tracks for '{query}'")
         return tracks
 
-    async def get_track_details(self, track_url: str) -> Track | None:
-        """Fetch full metadata from a Bandcamp track/album page."""
+    async def _search_candidates(self, query: str) -> list[str]:
+        """Query Bandcamp's internal search API for candidate track URLs."""
+        await self.rate_limiter.acquire()
+        client = await self._get_client()
+        payload = {"search_text": query, "search_filter": "t", "full_page": False}
         try:
-            response = await self._get(track_url)
+            response = await client.post(
+                _SEARCH_API,
+                json=payload,
+                headers={"User-Agent": _BROWSER_UA, "Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Bandcamp search error: {e.response.status_code}")
+            return []
         except Exception as e:
-            logger.warning(f"Could not fetch {track_url}: {e}")
+            logger.warning(f"Bandcamp search failed: {e}")
+            return []
+
+        results = data.get("auto", {}).get("results", [])
+        urls = []
+        for item in results:
+            if item.get("type") == "t" and item.get("item_url_path"):
+                urls.append(item["item_url_path"])
+        return urls
+
+    async def get_track_details(self, track_url: str) -> Track | None:
+        """Fetch full metadata from a Bandcamp track page (free tracks only)."""
+        return await self._fetch_free_track(track_url)
+
+    async def _fetch_free_track(self, track_url: str) -> Track | None:
+        """Fetch a track page and return a Track only if it's $0 name-your-price."""
+        await self.rate_limiter.acquire()
+        client = await self._get_client()
+        try:
+            response = await client.get(track_url, headers={"User-Agent": _BROWSER_UA})
+            response.raise_for_status()
+        except Exception as e:
+            logger.debug(f"Bandcamp page fetch failed for {track_url}: {e}")
             return None
 
         soup = BeautifulSoup(response.text, "html.parser")
-        return self._parse_track_page(soup, track_url)
-
-    def _parse_search_result(self, result_el) -> Track | None:
-        """Parse a single search result element.
-
-        Returns None if the track isn't name-your-price or we can't parse it.
-        """
-        # Check if it's name-your-price (free).
-        # Bandcamp marks these with literal "name your price" text in the
-        # result; there's no reliable per-result price element to key off of.
-        result_text = result_el.get_text(" ", strip=True).lower()
-        is_free = "name your price" in result_text
-
-        if not is_free:
+        el = soup.select_one("[data-tralbum]")
+        if el is None:
             return None
 
-        # Extract basic info
-        heading = result_el.select_one(".heading a")
-        if not heading:
+        try:
+            data = json.loads(el["data-tralbum"])
+        except (json.JSONDecodeError, KeyError, TypeError):
             return None
 
-        title = heading.get_text(strip=True)
-        url = heading.get("href", "").split("?")[0]
+        return self._parse_tralbum(data, soup, track_url)
 
-        # Artist
-        artist_el = result_el.select_one(".subhead")
-        artist = "Unknown"
-        if artist_el:
-            artist_text = artist_el.get_text(strip=True)
-            # Format is typically "from AlbumName by ArtistName" or just "by ArtistName"
-            by_match = re.search(r'by\s+(.+)', artist_text)
-            if by_match:
-                artist = by_match.group(1).strip()
+    def _parse_tralbum(self, data: dict, soup: BeautifulSoup, url: str) -> Track | None:
+        """Build a Track from the data-tralbum JSON, or None if not free."""
+        current = data.get("current", {})
+        trackinfo_list = data.get("trackinfo") or []
+        ti = trackinfo_list[0] if trackinfo_list else {}
 
-        # Genre from tags
-        genre = None
-        tags = []
-        tag_els = result_el.select(".tag")
-        if tag_els:
-            tags = [t.get_text(strip=True) for t in tag_els]
-            genre = tags[0] if tags else None
-
-        # Release date
-        release_date = None
-        released_el = result_el.select_one(".released")
-        if released_el:
-            date_text = released_el.get_text(strip=True)
-            date_match = re.search(r'released\s+(.+)', date_text, re.IGNORECASE)
-            if date_match:
-                try:
-                    release_date = datetime.strptime(date_match.group(1).strip(), "%B %d, %Y")
-                except ValueError:
-                    pass
-
-        # Artwork
-        artwork_url = None
-        art_el = result_el.select_one(".art img")
-        if art_el:
-            artwork_url = art_el.get("src")
-
-        return Track(
-            title=title,
-            artist=artist,
-            platform=Platform.BANDCAMP,
-            url=url,
-            download_type=DownloadType.NAME_YOUR_PRICE,
-            file_format=AudioFormat.MP3,  # Bandcamp offers multiple, MP3 is default free tier
-            genre=genre,
-            tags=tags,
-            release_date=release_date,
-            artwork_url=artwork_url,
+        # Confirm true name-your-price: $0 minimum, not a fixed price, and
+        # the track itself is downloadable for free.
+        minimum_price = current.get("minimum_price")
+        is_set_price = current.get("is_set_price")
+        is_free = (
+            minimum_price == 0
+            and not is_set_price
+            and (ti.get("has_free_download") or ti.get("is_downloadable") or data.get("FREE"))
         )
-
-    def _parse_track_page(self, soup: BeautifulSoup, url: str) -> Track | None:
-        """Parse a full Bandcamp track page for detailed metadata."""
-        # Check if it's name-your-price: a $0 minimum price, or the literal
-        # "name your price" text on the page (handled further below).
-        price_el = soup.select_one(".base-text-color[itemprop='price']")
-
-        is_free = False
-        if price_el:
-            price_text = price_el.get("content", "").strip()
-            if price_text in ("0", "0.00", "0.0"):
-                is_free = True
-
-        # Also check for "name your price" text
-        page_text = soup.get_text(" ", strip=True).lower()
-        if "name your price" in page_text:
-            is_free = True
-
         if not is_free:
             return None
 
-        # Title
-        title_el = soup.select_one("h2.trackTitle, .trackTitle")
-        title = title_el.get_text(strip=True) if title_el else "Unknown"
+        title = ti.get("title") or current.get("title") or "Unknown"
+        artist = data.get("artist") or current.get("artist") or "Unknown"
 
-        # Artist
-        artist_el = soup.select_one("#name-section a, span[itemprop='byArtist'] a")
-        artist = artist_el.get_text(strip=True) if artist_el else "Unknown"
+        # Duration (seconds, float)
+        duration_seconds = ti.get("duration")
 
-        # Duration
-        duration_el = soup.select_one("meta[itemprop='duration']")
-        duration_seconds = None
-        if duration_el:
-            dur_str = duration_el.get("content", "")
-            duration_seconds = self._parse_iso_duration(dur_str)
+        # Artwork from art_id
+        art_id = data.get("art_id") or current.get("art_id")
+        artwork_url = f"https://f4.bcbits.com/img/a{art_id}_10.jpg" if art_id else None
 
-        # Tags / genre
-        tag_els = soup.select(".tralbumData.tralbum-tags a.tag")
+        # Streamable preview (mp3-128)
+        preview_url = (ti.get("file") or {}).get("mp3-128")
+
+        # Tags / genre from the page
+        tag_els = soup.select("a.tag")
         tags = [t.get_text(strip=True) for t in tag_els]
         genre = tags[0] if tags else None
 
-        # Try to get BPM/key from tags or description
-        description = ""
-        desc_el = soup.select_one(".tralbumData.tralbum-about")
-        if desc_el:
-            description = desc_el.get_text(" ", strip=True)
-
+        # BPM / key from tags + description
+        description = current.get("about") or ""
         all_text = " ".join(tags) + " " + description
         bpm = self._extract_bpm(all_text)
         key = self._extract_key(all_text)
 
-        # Release date
-        release_date = None
-        date_el = soup.select_one("meta[itemprop='datePublished']")
-        if date_el:
-            try:
-                release_date = datetime.strptime(date_el["content"], "%Y%m%d")
-            except (ValueError, KeyError):
-                pass
+        # Release date — Bandcamp uses RFC-2822-ish strings like
+        # "01 Feb 2011 00:00:00 GMT".
+        release_date = self._parse_bc_date(
+            current.get("release_date") or current.get("publish_date")
+        )
 
-        # Artwork
-        artwork_url = None
-        art_el = soup.select_one("#tralbumArt a.popupImage img, .popupImage img")
-        if art_el:
-            artwork_url = art_el.get("src")
-
-        # Available formats — Bandcamp name-your-price offers multiple
-        # We note this as MP3 by default but the user gets format choice on download
-        available_formats = [AudioFormat.MP3]
-        format_text = page_text
-        if "flac" in format_text:
-            available_formats.append(AudioFormat.FLAC)
-        if "wav" in format_text:
-            available_formats.append(AudioFormat.WAV)
-        if "aiff" in format_text:
-            available_formats.append(AudioFormat.AIFF)
+        # Name-your-price offers a format choice on download; MP3 is the default.
+        file_format = AudioFormat.MP3
 
         return Track(
             title=title,
             artist=artist,
             platform=Platform.BANDCAMP,
             url=url,
+            download_url=url,  # NYP download happens on the track page itself
+            preview_url=preview_url,
             download_type=DownloadType.NAME_YOUR_PRICE,
-            file_format=AudioFormat.MP3,  # Default; Bandcamp lets you choose
+            file_format=file_format,
             bpm=bpm,
             key=key,
             genre=genre,
@@ -259,26 +198,28 @@ class BandcampScanner(PlatformScanner):
             release_date=release_date,
             description=description[:500] if description else None,
             artwork_url=artwork_url,
-            artist_url=url.rsplit("/", 2)[0] if "/" in url else None,
+            artist_url=data.get("url", url).rsplit("/track/", 1)[0] if "/track/" in url else None,
+            play_count=ti.get("play_count"),
         )
 
     @staticmethod
-    def _parse_iso_duration(iso_str: str) -> float | None:
-        """Parse ISO 8601 duration (P00H03M45S) to seconds."""
-        match = re.match(r'P(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', iso_str)
-        if not match:
+    def _parse_bc_date(date_str: str | None) -> datetime | None:
+        """Parse a Bandcamp date string like '01 Feb 2011 00:00:00 GMT'."""
+        if not date_str:
             return None
-        hours = int(match.group(1) or 0)
-        minutes = int(match.group(2) or 0)
-        seconds = int(match.group(3) or 0)
-        return float(hours * 3600 + minutes * 60 + seconds)
+        for fmt in ("%d %b %Y %H:%M:%S %Z", "%d %b %Y %H:%M:%S GMT"):
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+        return None
 
     @staticmethod
     def _extract_bpm(text: str) -> float | None:
         """Extract BPM from text."""
         patterns = [
-            r'(\d{2,3})\s*bpm',
-            r'bpm\s*[:=]?\s*(\d{2,3})',
+            r"(\d{2,3})\s*bpm",
+            r"bpm\s*[:=]?\s*(\d{2,3})",
         ]
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
@@ -292,9 +233,9 @@ class BandcampScanner(PlatformScanner):
     def _extract_key(text: str) -> str | None:
         """Extract musical key from text."""
         patterns = [
-            r'\b([A-G][b#]?m(?:in(?:or)?)?)\b',
-            r'\b([A-G][b#]?\s+(?:minor|major))\b',
-            r'\b(\d{1,2}[AB])\b',
+            r"\b([A-G][b#]?m(?:in(?:or)?)?)\b",
+            r"\b([A-G][b#]?\s+(?:minor|major))\b",
+            r"\b(\d{1,2}[AB])\b",
         ]
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)

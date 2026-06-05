@@ -148,10 +148,46 @@ class SoundCloudScanner(PlatformScanner):
 
         return self._parse_track(data)
 
+    @staticmethod
+    def _is_free_download(data: dict) -> tuple[bool, "DownloadType", str | None]:
+        """Decide whether a SC track is a free download and how it's obtained.
+
+        SoundCloud's ``filter.downloadable`` is unreliable, and most artists now
+        offer free downloads via an external ``purchase_url`` (a "free download"
+        link, often a gate). We surface a track when either:
+          * it has a real download button (``downloadable``/``has_downloads_left``)
+            -> DIRECT, or
+          * it has a ``purchase_url`` whose label looks like a free download
+            (e.g. "Free Download", "Free DL") -> GATED (external link).
+        Returns (is_free, download_type, download_url).
+        """
+        if data.get("downloadable") or data.get("has_downloads_left"):
+            return True, DownloadType.DIRECT, data.get("permalink_url")
+
+        purchase_url = data.get("purchase_url")
+        purchase_title = (data.get("purchase_title") or "").lower()
+        looks_free = any(w in purchase_title for w in ("free", "download", "dl"))
+        if purchase_url and looks_free:
+            return True, DownloadType.GATED, purchase_url
+        return False, DownloadType.DIRECT, None
+
+    @staticmethod
+    def _pick_preview_url(data: dict) -> str | None:
+        """Return the progressive (MP3) transcoding URL for in-browser preview.
+
+        This URL must be resolved with a client_id before playback (the backend
+        /api/stream endpoint does this lazily when the user hits play).
+        """
+        for tc in data.get("media", {}).get("transcodings", []):
+            fmt = tc.get("format", {})
+            if fmt.get("protocol") == "progressive":
+                return tc.get("url")
+        return None
+
     def _parse_track(self, data: dict) -> Track | None:
         """Parse a SoundCloud API track object into our Track model."""
-        if not data.get("downloadable") and not data.get("has_downloads_left"):
-            # Not actually downloadable
+        is_free, download_type, download_url = self._is_free_download(data)
+        if not is_free:
             return None
 
         # Parse release date
@@ -198,7 +234,9 @@ class SoundCloudScanner(PlatformScanner):
             platform=Platform.SOUNDCLOUD,
             url=data.get("permalink_url", ""),
             track_id=str(data.get("id", "")),
-            download_type=DownloadType.DIRECT,
+            download_url=download_url,
+            preview_url=self._pick_preview_url(data),
+            download_type=download_type,
             file_format=file_format,
             bitrate_kbps=128 if file_format == AudioFormat.MP3 else None,  # SC default
             bpm=bpm,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timezone
 from typing import Optional
 
 from freetracks.core.models import AudioFormat, Track
@@ -144,9 +145,23 @@ def sort_tracks(
     Supported sort keys: bpm, date, popularity, title, duration, quality, size
     """
     quality_rank = {"lossless": 3, "high": 2, "medium": 1, "low": 0, "unknown": -1}
+
+    def _date_key(t: Track) -> float:
+        """Epoch seconds for sorting, robust to mixed tz-aware/naive datetimes.
+
+        Different platforms produce different tzinfo (SoundCloud is tz-aware,
+        Bandcamp naive), which can't be compared directly — normalise to a float.
+        """
+        d = t.release_date
+        if d is None:
+            return 0.0
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return d.timestamp()
+
     sort_funcs = {
         "bpm": lambda t: (t.bpm or 0),
-        "date": lambda t: (t.release_date or __import__("datetime").datetime.min),
+        "date": _date_key,
         "popularity": lambda t: (t.play_count or 0),
         "title": lambda t: t.title.lower(),
         "duration": lambda t: (t.duration_seconds or 0),
