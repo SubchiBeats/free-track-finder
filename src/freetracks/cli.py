@@ -150,6 +150,38 @@ def search(
 
 
 @cli.command()
+@click.option("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
+@click.option("--port", "-p", default=8000, type=int, help="Port to bind (default: 8000)")
+@click.option("--reload", is_flag=True, default=False, help="Auto-reload on code changes (dev)")
+def serve(host: str, port: int, reload: bool):
+    """Launch the web app (API + browser UI) at http://localhost:8000.
+
+    Requires the web extra: pip install -e ".[web]"
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        console.print(
+            "[red]The web server needs extra dependencies.[/red]\n"
+            'Install them with:  [bold]pip install -e ".[web]"[/bold]'
+        )
+        raise SystemExit(1) from None
+
+    url = f"http://{host}:{port}"
+    console.print(
+        Panel(
+            f"[bold]Free Track Finder[/bold] web app\n\n"
+            f"  Open [cyan link {url}]{url}[/cyan]\n"
+            f"  API docs at [cyan]{url}/docs[/cyan]\n\n"
+            f"[dim]Press Ctrl+C to stop.[/dim]",
+            title="🎧 Serving",
+            border_style="cyan",
+        )
+    )
+    uvicorn.run("freetracks.web.app:app", host=host, port=port, reload=reload)
+
+
+@cli.command()
 def platforms():
     """List supported platforms and their capabilities."""
     console.print()

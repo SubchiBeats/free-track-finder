@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Find legitimately free DJ tracks across SoundCloud, Bandcamp, and Hypeddit — with BPM, key, Camelot, and harmonic-mixing tools." />
+  <meta name="color-scheme" content="dark" />
+  <title>Free Track Finder — Discover free DJ tracks</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎧%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#results">Skip to results</a>
+
+  <!-- Live region for screen-reader announcements -->
+  <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">🎧</span>
+      <div>
+        <h1>Free Track Finder</h1>
+        <p class="tagline">Legitimately free tracks for DJs — SoundCloud · Bandcamp · Hypeddit</p>
+      </div>
+    </div>
+    <button id="crate-toggle" class="btn btn-ghost" aria-haspopup="dialog" aria-controls="crate-drawer">
+      <span aria-hidden="true">🗂️</span> Crate <span id="crate-count" class="badge" aria-label="tracks in crate">0</span>
+    </button>
+  </header>
+
+  <main>
+    <!-- ============ SEARCH ============ -->
+    <section class="search-section" aria-labelledby="search-heading">
+      <h2 id="search-heading" class="sr-only">Search for tracks</h2>
+      <form id="search-form" class="search-form" role="search">
+        <div class="search-bar">
+          <label for="query" class="sr-only">Search terms (genre, artist, style)</label>
+          <input
+            type="search" id="query" name="query" autocomplete="off"
+            placeholder="Search a genre, artist or vibe — e.g. “melodic techno”"
+            aria-describedby="query-hint" required />
+          <button type="submit" id="search-btn" class="btn btn-primary">
+            <span class="btn-label">Search</span>
+          </button>
+        </div>
+        <p id="query-hint" class="hint">Tip: searching a genre name (e.g. “tech house”) works best across all platforms.</p>
+
+        <!-- Saved searches / history -->
+        <div class="quick-row" id="quick-row" hidden>
+          <div class="chips" id="history-chips" aria-label="Recent searches"></div>
+        </div>
+
+        <!-- ============ FILTERS ============ -->
+        <details class="filter-panel" id="filter-panel" open>
+          <summary><span aria-hidden="true">⚙️</span> Filters &amp; sort</summary>
+          <div class="filter-grid">
+
+            <fieldset class="filter-group">
+              <legend>Platforms</legend>
+              <div id="platform-toggles" class="toggle-list" role="group" aria-label="Platforms to search"></div>
+            </fieldset>
+
+            <fieldset class="filter-group">
+              <legend>BPM range</legend>
+              <div class="bpm-row">
+                <label for="bpm-min">Min</label>
+                <input type="number" id="bpm-min" min="40" max="220" step="1" inputmode="numeric" placeholder="—" />
+                <span aria-hidden="true">–</span>
+                <label for="bpm-max">Max</label>
+                <input type="number" id="bpm-max" min="40" max="220" step="1" inputmode="numeric" placeholder="—" />
+              </div>
+              <input type="range" id="bpm-min-range" min="40" max="220" step="1" value="40"
+                     aria-label="Minimum BPM" />
+              <input type="range" id="bpm-max-range" min="40" max="220" step="1" value="220"
+                     aria-label="Maximum BPM" />
+            </fieldset>
+
+            <fieldset class="filter-group">
+              <legend>Musical key</legend>
+              <label for="key-select" class="sr-only">Camelot key</label>
+              <select id="key-select">
+                <option value="">Any key</option>
+              </select>
+              <label class="checkbox">
+                <input type="checkbox" id="harmonic-toggle" />
+                <span>Include harmonically compatible keys</span>
+              </label>
+              <button type="button" id="wheel-open" class="btn btn-ghost btn-sm" aria-haspopup="dialog" aria-controls="wheel-dialog">
+                Open Camelot wheel
+              </button>
+            </fieldset>
+
+            <fieldset class="filter-group">
+              <legend>Genre &amp; format</legend>
+              <label for="genre">Genre contains</label>
+              <input type="text" id="genre" placeholder="e.g. house" autocomplete="off" />
+              <label for="format-select">Format</label>
+              <select id="format-select">
+                <option value="">Any format</option>
+                <option value="mp3">MP3</option>
+                <option value="wav">WAV</option>
+                <option value="flac">FLAC</option>
+                <option value="aiff">AIFF</option>
+              </select>
+            </fieldset>
+
+            <fieldset class="filter-group">
+              <legend>Quality &amp; type</legend>
+              <label for="min-bitrate">Min bitrate (kbps)</label>
+              <input type="number" id="min-bitrate" min="0" max="1411" step="32" placeholder="—" inputmode="numeric" />
+              <label class="checkbox">
+                <input type="checkbox" id="exclude-gated" />
+                <span>Exclude gated downloads</span>
+              </label>
+            </fieldset>
+
+            <fieldset class="filter-group">
+              <legend>Sort &amp; limit</legend>
+              <label for="sort-select">Sort by</label>
+              <select id="sort-select">
+                <option value="popularity">Popularity</option>
+                <option value="date">Newest</option>
+                <option value="bpm">BPM</option>
+                <option value="title">Title</option>
+                <option value="duration">Duration</option>
+                <option value="quality">Quality</option>
+                <option value="likes">Likes</option>
+              </select>
+              <label for="max-results">Max results</label>
+              <input type="number" id="max-results" min="5" max="200" step="5" value="50" inputmode="numeric" />
+            </fieldset>
+          </div>
+        </details>
+      </form>
+    </section>
+
+    <!-- ============ RESULTS ============ -->
+    <section id="results" class="results-section" aria-labelledby="results-heading" tabindex="-1">
+      <div class="results-bar">
+        <h2 id="results-heading">Results</h2>
+        <div class="results-meta" id="results-meta" aria-live="polite"></div>
+        <div class="view-toggle" role="group" aria-label="Result view">
+          <button type="button" id="view-cards" class="btn btn-sm is-active" aria-pressed="true">Cards</button>
+          <button type="button" id="view-table" class="btn btn-sm" aria-pressed="false">Table</button>
+        </div>
+      </div>
+
+      <div id="platform-errors" class="platform-errors" role="alert" hidden></div>
+
+      <!-- States -->
+      <div id="empty-state" class="state-panel">
+        <p class="state-emoji" aria-hidden="true">🔎</p>
+        <p>Search above to discover free tracks. Try a genre like <strong>“deep house”</strong>.</p>
+      </div>
+
+      <div id="loading-state" class="results-grid" hidden aria-hidden="true"></div>
+
+      <div id="results-cards" class="results-grid" hidden></div>
+
+      <div id="results-table-wrap" class="table-wrap" hidden>
+        <table class="results-table">
+          <caption class="sr-only">Search results in table form</caption>
+          <thead>
+            <tr>
+              <th scope="col">Title</th><th scope="col">Artist</th><th scope="col">BPM</th>
+              <th scope="col">Key</th><th scope="col">Cam</th><th scope="col">Genre</th>
+              <th scope="col">Dur</th><th scope="col">Fmt</th><th scope="col">Quality</th>
+              <th scope="col">Platform</th><th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="results-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ CAMELOT WHEEL DIALOG ============ -->
+  <dialog id="wheel-dialog" class="dialog" aria-labelledby="wheel-title">
+    <div class="dialog-head">
+      <h2 id="wheel-title">Camelot wheel</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog aria-label="Close">✕</button>
+    </div>
+    <p class="hint">Click a key to filter results to it and its harmonically compatible neighbours.</p>
+    <div id="wheel-container" class="wheel-container"></div>
+    <p class="wheel-selected" id="wheel-selected" aria-live="polite"></p>
+  </dialog>
+
+  <!-- ============ CRATE DRAWER ============ -->
+  <dialog id="crate-drawer" class="drawer" aria-labelledby="crate-title">
+    <div class="dialog-head">
+      <h2 id="crate-title">Your crate</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog aria-label="Close crate">✕</button>
+    </div>
+    <div class="crate-actions">
+      <button type="button" class="btn btn-sm" id="crate-copy">Copy all links</button>
+      <button type="button" class="btn btn-sm" data-export="m3u">Export M3U</button>
+      <button type="button" class="btn btn-sm" data-export="csv">Export CSV</button>
+      <button type="button" class="btn btn-sm" data-export="json">Export JSON</button>
+      <button type="button" class="btn btn-sm btn-danger" id="crate-clear">Clear</button>
+    </div>
+    <ol id="crate-list" class="crate-list" aria-label="Tracks in your crate"></ol>
+    <p id="crate-empty" class="hint">Your crate is empty. Add tracks from the results to build a set.</p>
+  </dialog>
+
+  <!-- ============ PLAYER BAR ============ -->
+  <div id="player-bar" class="player-bar" role="region" aria-label="Audio preview player" hidden>
+    <button type="button" id="player-play" class="btn btn-icon" aria-label="Play or pause preview">▶</button>
+    <div class="player-info">
+      <span id="player-title" class="player-title">—</span>
+      <span id="player-artist" class="player-artist"></span>
+    </div>
+    <input type="range" id="player-seek" class="player-seek" min="0" max="100" value="0" step="0.1" aria-label="Seek" />
+    <span id="player-time" class="player-time">0:00</span>
+    <label class="player-vol">
+      <span class="sr-only">Volume</span>
+      <input type="range" id="player-vol" min="0" max="1" step="0.01" value="0.8" aria-label="Volume" />
+    </label>
+    <button type="button" id="player-close" class="btn btn-icon" aria-label="Close player">✕</button>
+  </div>
+
+  <!-- Toasts -->
+  <div id="toast-region" class="toast-region" aria-live="assertive" aria-atomic="true"></div>
+
+  <template id="card-template">
+    <article class="track-card" tabindex="0">
+      <div class="card-art">
+        <img alt="" loading="lazy" />
+        <button type="button" class="card-play btn-icon" aria-label="Preview track" hidden>▶</button>
+        <span class="quality-badge"></span>
+      </div>
+      <div class="card-body">
+        <h3 class="card-title"><a></a></h3>
+        <p class="card-artist"></p>
+        <ul class="card-meta">
+          <li class="m-bpm"></li><li class="m-key"></li><li class="m-genre"></li>
+          <li class="m-dur"></li><li class="m-fmt"></li>
+        </ul>
+      </div>
+      <div class="card-actions">
+        <a class="btn btn-primary btn-sm card-get" target="_blank" rel="noopener"></a>
+        <a class="btn btn-ghost btn-sm card-open" target="_blank" rel="noopener">Page</a>
+        <button type="button" class="btn btn-ghost btn-sm card-add">+ Crate</button>
+        <button type="button" class="btn btn-icon card-fav" aria-pressed="false" aria-label="Save to favorites">♡</button>
+      </div>
+    </article>
+  </template>
+
+  <footer class="site-footer">
+    <p>Free Track Finder respects artists — it only surfaces downloads they've made free. Complete any gate's social action to grab gated tracks.</p>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

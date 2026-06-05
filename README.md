@@ -70,6 +70,47 @@ ftf search "progressive house" --verbose
 
 ---
 
+## 🌐 Web App
+
+A sleek, accessible browser UI ships alongside the CLI. It runs **local-first**: a
+thin [FastAPI](https://fastapi.tiangolo.com/) backend wraps the same `SearchEngine`
+and serves a dependency-free vanilla HTML/CSS/JS frontend on `localhost` — zero
+hosting cost, and scraping runs from your own IP (more reliable than a cloud host).
+
+```bash
+# Install the web extra (adds fastapi + uvicorn)
+pip install -e ".[web]"
+
+# Launch the app, then open http://localhost:8000
+ftf serve
+```
+
+Features:
+
+- **Search + filter panel** — BPM range sliders, Camelot key selector, genre,
+  format, platform toggles, min bitrate, sort, max results.
+- **Result cards & table view** — artwork, BPM, key + Camelot, genre, duration,
+  quality/download-type badges, a prominent Get button and an Open-page link.
+- **Interactive Camelot wheel** — click a key to filter to harmonically
+  compatible keys for smooth mixing.
+- **In-browser preview player** — Web Audio API playback where preview streams
+  are available (Bandcamp directly; SoundCloud resolved server-side).
+- **Crate / set builder** — add tracks, reorder, "Copy all links", and export
+  the crate as CSV / JSON / M3U straight from the browser.
+- **Saved searches, favorites & history** — persisted in `localStorage`, no DB.
+- **Accessible (WCAG 2.1 AA)** — semantic landmarks, full keyboard navigation,
+  visible focus styles, ARIA labels, screen-reader announcements, and
+  `prefers-reduced-motion` support. Fully responsive / mobile-friendly.
+
+The backend exposes a small JSON API (also browsable at `/docs`):
+`GET /api/platforms`, `POST /api/search`, `GET /api/track`,
+`GET /api/keys/compatible`, `GET /api/stream`, `POST /api/export`.
+
+> GitHub Pages is static-only and can't host the Python backend. To deploy
+> publicly later, use a free Python host (Render / Railway / Fly / HF Spaces).
+
+---
+
 ## CLI Reference
 
 ### `ftf search <query>`
