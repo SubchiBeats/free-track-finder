@@ -15,9 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime
-from typing import Optional
-from urllib.parse import quote_plus
 
 import httpx
 from bs4 import BeautifulSoup

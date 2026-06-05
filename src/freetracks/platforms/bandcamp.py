@@ -10,12 +10,9 @@ we want to be respectful.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import datetime
-from typing import Optional
-from urllib.parse import quote_plus, urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -105,11 +102,9 @@ class BandcampScanner(PlatformScanner):
 
         Returns None if the track isn't name-your-price or we can't parse it.
         """
-        # Check if it's name-your-price (free)
-        subhead = result_el.select_one(".subhead")
-        price_el = result_el.select_one(".price, .released")
-
-        # Look for "name your price" indicator
+        # Check if it's name-your-price (free).
+        # Bandcamp marks these with literal "name your price" text in the
+        # result; there's no reliable per-result price element to key off of.
         result_text = result_el.get_text(" ", strip=True).lower()
         is_free = "name your price" in result_text
 
@@ -175,8 +170,8 @@ class BandcampScanner(PlatformScanner):
 
     def _parse_track_page(self, soup: BeautifulSoup, url: str) -> Track | None:
         """Parse a full Bandcamp track page for detailed metadata."""
-        # Check if it's name-your-price
-        buy_link = soup.select_one(".buyItem .buyItemExtra .buyItemNy498")
+        # Check if it's name-your-price: a $0 minimum price, or the literal
+        # "name your price" text on the page (handled further below).
         price_el = soup.select_one(".base-text-color[itemprop='price']")
 
         is_free = False

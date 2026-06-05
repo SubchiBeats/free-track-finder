@@ -1,9 +1,9 @@
 """Platform registry — central place to get scanner instances."""
 
-from freetracks.platforms.base import PlatformScanner
-from freetracks.platforms.soundcloud import SoundCloudScanner
 from freetracks.platforms.bandcamp import BandcampScanner
+from freetracks.platforms.base import PlatformScanner
 from freetracks.platforms.hypeddit import HypedditScanner
+from freetracks.platforms.soundcloud import SoundCloudScanner
 
 # Registry of all available platform scanners
 PLATFORM_SCANNERS: dict[str, type[PlatformScanner]] = {

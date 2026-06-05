@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from freetracks.core.models import Track, AudioFormat
-from freetracks.utils.keys import standard_to_camelot, normalize_key
+from freetracks.core.models import AudioFormat, Track
+from freetracks.utils.keys import standard_to_camelot
 
 
 @dataclass
@@ -67,10 +67,16 @@ class TrackFilter:
 
         # Duration range
         if self.min_duration_seconds is not None:
-            if track.duration_seconds is not None and track.duration_seconds < self.min_duration_seconds:
+            if (
+                track.duration_seconds is not None
+                and track.duration_seconds < self.min_duration_seconds
+            ):
                 return False
         if self.max_duration_seconds is not None:
-            if track.duration_seconds is not None and track.duration_seconds > self.max_duration_seconds:
+            if (
+                track.duration_seconds is not None
+                and track.duration_seconds > self.max_duration_seconds
+            ):
                 return False
 
         # Quality tier
@@ -137,13 +143,14 @@ def sort_tracks(
 
     Supported sort keys: bpm, date, popularity, title, duration, quality, size
     """
+    quality_rank = {"lossless": 3, "high": 2, "medium": 1, "low": 0, "unknown": -1}
     sort_funcs = {
         "bpm": lambda t: (t.bpm or 0),
         "date": lambda t: (t.release_date or __import__("datetime").datetime.min),
         "popularity": lambda t: (t.play_count or 0),
         "title": lambda t: t.title.lower(),
         "duration": lambda t: (t.duration_seconds or 0),
-        "quality": lambda t: {"lossless": 3, "high": 2, "medium": 1, "low": 0, "unknown": -1}.get(t.quality_tier, -1),
+        "quality": lambda t: quality_rank.get(t.quality_tier, -1),
         "size": lambda t: (t.file_size_bytes or 0),
         "likes": lambda t: (t.like_count or 0),
     }

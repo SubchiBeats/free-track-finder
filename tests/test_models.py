@@ -1,10 +1,8 @@
 """Tests for Track model and TrackFilter."""
 
-import pytest
-from datetime import datetime
 
-from freetracks.core.models import Track, Platform, DownloadType, AudioFormat
 from freetracks.core.filters import TrackFilter, sort_tracks
+from freetracks.core.models import AudioFormat, DownloadType, Platform, Track
 
 
 def _make_track(**overrides) -> Track:

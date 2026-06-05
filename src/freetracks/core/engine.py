@@ -5,11 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Optional
 
-from freetracks.core.models import SearchResults, Track
 from freetracks.core.filters import TrackFilter, sort_tracks
-from freetracks.platforms import get_scanner, get_all_scanners, PLATFORM_NAMES
+from freetracks.core.models import SearchResults, Track
+from freetracks.platforms import PLATFORM_NAMES, get_scanner
 from freetracks.utils.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)

@@ -8,7 +8,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, computed_field
 
-from freetracks.utils.keys import standard_to_camelot, camelot_to_standard
+from freetracks.utils.keys import standard_to_camelot
 
 
 class Platform(str, Enum):

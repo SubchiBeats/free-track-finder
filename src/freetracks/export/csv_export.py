@@ -10,8 +10,7 @@ import csv
 import io
 from pathlib import Path
 
-from freetracks.core.models import Track, SearchResults
-
+from freetracks.core.models import SearchResults, Track
 
 # Column order optimized for DJ workflow
 CSV_COLUMNS = [

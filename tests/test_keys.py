@@ -1,12 +1,11 @@
 """Tests for musical key / Camelot wheel utilities."""
 
-import pytest
 
 from freetracks.utils.keys import (
-    standard_to_camelot,
     camelot_to_standard,
-    normalize_key,
     get_compatible_keys,
+    normalize_key,
+    standard_to_camelot,
 )
 
 
