@@ -171,7 +171,7 @@ def serve(host: str, port: int, reload: bool):
     console.print(
         Panel(
             f"[bold]Free Track Finder[/bold] web app\n\n"
-            f"  Open [cyan link {url}]{url}[/cyan]\n"
+            f"  Open [cyan link {url}]{url}[/]\n"
             f"  API docs at [cyan]{url}/docs[/cyan]\n\n"
             f"[dim]Press Ctrl+C to stop.[/dim]",
             title="🎧 Serving",
