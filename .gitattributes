@@ -1,0 +1,11 @@
+# Normalize line endings: store text as LF in the repo
+* text=auto eol=lf
+*.py   text
+*.toml text
+*.md   text
+*.txt  text
+
+# Binary assets
+*.png  binary
+*.jpg  binary
+*.gif  binary
