@@ -18,6 +18,7 @@ Free Track Finder scans music platforms for tracks that artists have explicitly 
 - **DJ-Optimized Filtering** — Filter by BPM range, Camelot key, genre, file format, minimum bitrate
 - **Export** — Save results as CSV, JSON, or M3U playlists importable into Serato, rekordbox, Traktor, etc.
 - **Playlist Integration** — Export as SoundCloud-compatible playlists or crate-ready file lists
+- **Clickable Results** — Each result is a live terminal hyperlink: click the **title** to open the track page, or the **Get** link to jump straight to the download — no copy-pasting URLs. (`-v` also prints full, copyable links.)
 
 ---
 

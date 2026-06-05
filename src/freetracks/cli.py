@@ -7,20 +7,18 @@ All commands are async under the hood — the CLI wraps them with asyncio.run().
 from __future__ import annotations
 
 import asyncio
-import sys
 from pathlib import Path
-from typing import Optional
 
 import click
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
 from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from freetracks.core.engine import SearchEngine
 from freetracks.core.filters import TrackFilter
-from freetracks.core.models import AudioFormat, SearchResults
+from freetracks.core.models import AudioFormat, DownloadType, SearchResults
 from freetracks.export import export_csv, export_json, export_m3u
 from freetracks.platforms import PLATFORM_NAMES
 from freetracks.utils.formatting import truncate
@@ -45,11 +43,14 @@ def cli():
 )
 @click.option("--bpm-min", type=float, default=None, help="Minimum BPM")
 @click.option("--bpm-max", type=float, default=None, help="Maximum BPM")
-@click.option("--key", "-k", type=str, default=None, help="Musical key (standard or Camelot, e.g. Am or 8A)")
+@click.option("--key", "-k", type=str, default=None,
+              help="Musical key (standard or Camelot, e.g. Am or 8A)")
 @click.option("--genre", "-g", type=str, default=None, help="Filter by genre (comma-separated)")
-@click.option("--format", "-f", "file_format", type=str, default=None, help="Audio format (mp3, wav, flac, aiff)")
+@click.option("--format", "-f", "file_format", type=str, default=None,
+              help="Audio format (mp3, wav, flac, aiff)")
 @click.option("--min-bitrate", type=int, default=None, help="Minimum bitrate in kbps")
-@click.option("--max-results", "-n", type=int, default=50, help="Max tracks to return (default: 50)")
+@click.option("--max-results", "-n", type=int, default=50,
+              help="Max tracks to return (default: 50)")
 @click.option(
     "--sort", "-s",
     type=click.Choice(["bpm", "date", "popularity", "title", "duration", "quality", "likes"]),
@@ -204,6 +205,23 @@ def convert(input_file: str, format: str, output: str | None):
     _handle_export(results, format, output)
 
 
+def _download_cell(track) -> Text:
+    """A clickable terminal hyperlink that opens the most direct download location.
+
+    Prefers the track's direct ``download_url`` when known, otherwise links to the
+    track page (where the download / "name your price" / unlock button lives).
+    The label reflects how the track is obtained so DJs know what to expect.
+    """
+    target = track.download_url or track.url
+    if track.download_type == DownloadType.NAME_YOUR_PRICE:
+        label, color = "⬇ Free $0", "bold green"
+    elif track.download_type == DownloadType.GATED:
+        label, color = "🔒 Unlock", "bold yellow"
+    else:
+        label, color = "⬇ Download", "bold green"
+    return Text(label, style=f"{color} link {target}")
+
+
 def _display_results_table(results: SearchResults, verbose: bool = False):
     """Render search results as a Rich table."""
     table = Table(
@@ -224,7 +242,7 @@ def _display_results_table(results: SearchResults, verbose: bool = False):
     table.add_column("Dur", style="dim", width=6)
     table.add_column("Fmt", style="blue", width=4)
     table.add_column("Quality", style="blue dim", width=8)
-    table.add_column("DL Type", style="dim", width=9)
+    table.add_column("Get", justify="center", width=12, no_wrap=True)
     table.add_column("Platform", style="dim", width=11)
 
     if verbose:
@@ -235,9 +253,13 @@ def _display_results_table(results: SearchResults, verbose: bool = False):
     for i, track in enumerate(results.tracks, 1):
         row_data = track.to_row(verbose=verbose)
 
+        # Clickable title -> track page; clickable Get -> direct download (or page).
+        title_cell = Text(truncate(row_data["title"], 35), style=f"bold white link {track.url}")
+        get_cell = _download_cell(track)
+
         row = [
             str(i),
-            truncate(row_data["title"], 35),
+            title_cell,
             truncate(row_data["artist"], 20),
             str(row_data["bpm"]),
             str(row_data["key"]),
@@ -246,7 +268,7 @@ def _display_results_table(results: SearchResults, verbose: bool = False):
             str(row_data["duration"]),
             str(row_data["format"]),
             str(row_data["quality"]),
-            str(row_data["download"]),
+            get_cell,
             str(row_data["platform"]),
         ]
 
@@ -274,6 +296,20 @@ def _display_results_table(results: SearchResults, verbose: bool = False):
         summary_parts.append(f"Formats: [blue]{fmt_str}[/blue]")
 
     console.print(f"\n  {'  •  '.join(summary_parts)}")
+    console.print(
+        "  [dim]Tip: click a [bold]Title[/bold] to open the track page, or the "
+        "[bold]Get[/bold] link to jump straight to the download "
+        "(Ctrl/⌘-click in some terminals). Use [bold]-v[/bold] for full copy/paste URLs.[/dim]"
+    )
+
+    if verbose:
+        console.print("\n  [bold]Download links[/bold] [dim](full URLs — click or copy):[/dim]")
+        for i, track in enumerate(results.tracks, 1):
+            target = track.download_url or track.url
+            console.print(
+                Text.assemble(("  ", ""), (f"{i:>2}. ", "dim"), (target, f"cyan link {target}"))
+            )
+
     console.print()
 
 
