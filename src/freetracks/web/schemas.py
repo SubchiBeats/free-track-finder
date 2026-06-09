@@ -28,6 +28,10 @@ class SearchRequest(BaseModel):
     min_bitrate_kbps: Optional[int] = None
     quality_tiers: list[str] = Field(default_factory=list)
     exclude_gated: bool = False
+    download_types: list[str] = Field(default_factory=list)
+    exclude_unknown_bpm: bool = False
+    max_duration_seconds: Optional[float] = None
+    min_duration_seconds: Optional[float] = None
 
     # Sorting + paging
     sort_by: str = "popularity"

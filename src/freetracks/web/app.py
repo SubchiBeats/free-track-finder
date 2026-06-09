@@ -16,11 +16,14 @@ for normal use. A permissive CORS policy is enabled anyway to ease development
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import shutil
+import tempfile
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -97,6 +100,10 @@ async def search(req: SearchRequest) -> JSONResponse:
         min_bitrate_kbps=req.min_bitrate_kbps,
         quality_tiers=req.quality_tiers,
         exclude_gated=req.exclude_gated,
+        download_types=req.download_types,
+        exclude_unknown_bpm=req.exclude_unknown_bpm,
+        max_duration_seconds=req.max_duration_seconds,
+        min_duration_seconds=req.min_duration_seconds,
     )
 
     engine = SearchEngine()
@@ -167,6 +174,50 @@ async def stream(
         await scanner.close()
 
 
+@app.get("/api/audio")
+async def audio_proxy(url: str = Query(..., description="Preview/stream URL to proxy")):
+    """Stream a remote preview through our origin so the browser can analyse it.
+
+    Cross-origin audio can be *played* but not *read* (Web Audio BPM analysis
+    needs the raw bytes, which CORS blocks). Proxying via localhost makes the
+    bytes same-origin. SoundCloud transcodings are resolved first.
+    """
+    from fastapi.responses import StreamingResponse
+
+    media_url = url
+    scanner = None
+    if "soundcloud.com" in url and "/media/" in url:
+        scanner = SoundCloudScanner()
+        try:
+            client_id = await scanner._resolve_client_id()
+            client = await scanner._get_client()
+            resp = await client.get(url, params={"client_id": client_id})
+            resp.raise_for_status()
+            media_url = resp.json().get("url", url)
+        except Exception as e:  # noqa: BLE001
+            if scanner:
+                await scanner.close()
+            raise HTTPException(status_code=502, detail=f"Could not resolve stream: {e}") from e
+
+    try:
+        upstream = httpx.AsyncClient(follow_redirects=True, timeout=30.0)
+        r = await upstream.get(media_url, headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+    except httpx.HTTPError as e:
+        await upstream.aclose()
+        raise HTTPException(status_code=502, detail=f"Audio fetch failed: {e}") from e
+
+    async def _iter():
+        try:
+            yield r.content
+        finally:
+            await upstream.aclose()
+            if scanner:
+                await scanner.close()
+
+    return StreamingResponse(_iter(), media_type=r.headers.get("content-type", "audio/mpeg"))
+
+
 _EXPORT_MEDIA = {
     "csv": ("text/csv", "ftf_crate.csv"),
     "json": ("application/json", "ftf_crate.json"),
@@ -200,6 +251,89 @@ async def export(req: ExportRequest) -> Response:
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+# ---- Audio format converter (ffmpeg) ----
+
+_CONVERT_FORMATS = {
+    # target -> (file extension, extra ffmpeg args)
+    "mp3": ("mp3", ["-codec:a", "libmp3lame", "-b:a", "320k"]),
+    "wav": ("wav", ["-codec:a", "pcm_s16le"]),
+    "flac": ("flac", ["-codec:a", "flac"]),
+    "aiff": ("aiff", ["-codec:a", "pcm_s16be"]),
+}
+_CONVERT_MEDIA = {
+    "mp3": "audio/mpeg", "wav": "audio/wav", "flac": "audio/flac", "aiff": "audio/aiff",
+}
+_MAX_UPLOAD_BYTES = 80 * 1024 * 1024  # 80 MB
+
+
+def _ffmpeg_path() -> str | None:
+    return shutil.which("ffmpeg")
+
+
+@app.get("/api/convert/available")
+async def convert_available() -> dict:
+    """Report whether ffmpeg is installed (drives the converter UI state)."""
+    return {
+        "available": _ffmpeg_path() is not None,
+        "formats": list(_CONVERT_FORMATS.keys()),
+    }
+
+
+@app.post("/api/convert")
+async def convert(
+    file: UploadFile = File(...),
+    target: str = Form(...),
+) -> Response:
+    """Convert an uploaded audio file to a target format via ffmpeg."""
+    ffmpeg = _ffmpeg_path()
+    if ffmpeg is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ffmpeg is not installed on the server. Install it (e.g. "
+            "'winget install ffmpeg' on Windows) and restart, then try again.",
+        )
+    target = target.lower().strip()
+    if target not in _CONVERT_FORMATS:
+        raise HTTPException(status_code=422, detail=f"Unsupported target format '{target}'.")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="Empty file.")
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 80 MB).")
+
+    ext, extra_args = _CONVERT_FORMATS[target]
+    src_suffix = Path(file.filename or "audio").suffix or ".bin"
+    stem = Path(file.filename or "audio").stem or "audio"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / f"in{src_suffix}"
+        dst = Path(tmp) / f"out.{ext}"
+        src.write_bytes(data)
+
+        proc = await asyncio.create_subprocess_exec(
+            ffmpeg, "-y", "-i", str(src), *extra_args, str(dst),
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise HTTPException(status_code=504, detail="Conversion timed out.") from None
+
+        if proc.returncode != 0 or not dst.exists():
+            msg = (stderr or b"").decode(errors="replace")[-300:]
+            raise HTTPException(status_code=422, detail=f"Conversion failed: {msg}")
+
+        out = dst.read_bytes()
+
+    return Response(
+        content=out,
+        media_type=_CONVERT_MEDIA[target],
+        headers={"Content-Disposition": f'attachment; filename="{stem}.{ext}"'},
+    )
 
 
 # Mount the static frontend LAST so /api routes take precedence. html=True

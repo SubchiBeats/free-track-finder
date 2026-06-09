@@ -55,6 +55,27 @@ export async function exportCrate(tracks, format, query = "crate") {
   triggerDownload(blob, filename);
 }
 
+export async function convertAvailable() {
+  return jsonOrThrow(await fetch("api/convert/available"));
+}
+
+// Upload an audio file, convert to `target` format, and download the result.
+export async function convertFile(file, target) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("target", target);
+  const res = await fetch("api/convert", { method: "POST", body: form });
+  if (!res.ok) {
+    let detail = `Conversion failed (${res.status})`;
+    try { const b = await res.json(); if (b.detail) detail = b.detail; } catch (_) {}
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  triggerDownload(blob, m ? m[1] : `converted.${target}`);
+}
+
 export function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

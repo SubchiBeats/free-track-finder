@@ -23,9 +23,17 @@
         <p class="tagline">Legitimately free tracks for DJs — SoundCloud · Bandcamp · Hypeddit</p>
       </div>
     </div>
-    <button id="crate-toggle" class="btn btn-ghost" aria-haspopup="dialog" aria-controls="crate-drawer">
-      <span aria-hidden="true">🗂️</span> Crate <span id="crate-count" class="badge" aria-label="tracks in crate">0</span>
-    </button>
+    <div class="header-actions">
+      <button id="favorites-toggle" class="btn btn-ghost">
+        <span aria-hidden="true">♥</span> Saved <span id="fav-count" class="badge" aria-label="saved favorites">0</span>
+      </button>
+      <button id="convert-toggle" class="btn btn-ghost" aria-haspopup="dialog" aria-controls="convert-dialog">
+        <span aria-hidden="true">🎚️</span> Convert
+      </button>
+      <button id="crate-toggle" class="btn btn-ghost" aria-haspopup="dialog" aria-controls="crate-drawer">
+        <span aria-hidden="true">🗂️</span> Crate <span id="crate-count" class="badge" aria-label="tracks in crate">0</span>
+      </button>
+    </div>
   </header>
 
   <main>
@@ -69,10 +77,19 @@
                 <label for="bpm-max">Max</label>
                 <input type="number" id="bpm-max" min="40" max="220" step="1" inputmode="numeric" placeholder="—" />
               </div>
-              <input type="range" id="bpm-min-range" min="40" max="220" step="1" value="40"
-                     aria-label="Minimum BPM" />
-              <input type="range" id="bpm-max-range" min="40" max="220" step="1" value="220"
-                     aria-label="Maximum BPM" />
+              <div class="chips bpm-presets" role="group" aria-label="BPM presets">
+                <button type="button" class="chip" data-bpm="120-128">House 120–128</button>
+                <button type="button" class="chip" data-bpm="124-128">Tech 124–128</button>
+                <button type="button" class="chip" data-bpm="128-134">Techno 128–134</button>
+                <button type="button" class="chip" data-bpm="138-150">DnB-ish 138–150</button>
+                <button type="button" class="chip" data-bpm="170-175">DnB 170–175</button>
+                <button type="button" class="chip" data-bpm="">Clear</button>
+              </div>
+              <label class="checkbox">
+                <input type="checkbox" id="known-bpm-only" />
+                <span>Only tracks with known BPM</span>
+              </label>
+              <p class="hint hint-sm">Many uploads don't tag BPM — use “Est.” on a card to analyse its preview.</p>
             </fieldset>
 
             <fieldset class="filter-group">
@@ -105,13 +122,35 @@
             </fieldset>
 
             <fieldset class="filter-group">
-              <legend>Quality &amp; type</legend>
+              <legend>Download type</legend>
+              <label class="checkbox">
+                <input type="checkbox" class="dl-type-cb" value="direct" checked />
+                <span>⬇ Direct (easiest)</span>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" class="dl-type-cb" value="name_your_price" checked />
+                <span>⬇ Name-your-price $0</span>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" class="dl-type-cb" value="gated" checked />
+                <span>🔒 Gated (must unlock)</span>
+              </label>
+            </fieldset>
+
+            <fieldset class="filter-group">
+              <legend>Length</legend>
+              <label class="checkbox">
+                <input type="checkbox" id="hide-mixes" checked />
+                <span>Hide long mixes (over 9:30)</span>
+              </label>
+              <label for="max-minutes">Custom max length (minutes)</label>
+              <input type="number" id="max-minutes" min="1" max="180" step="1" placeholder="—" inputmode="numeric" />
+            </fieldset>
+
+            <fieldset class="filter-group">
+              <legend>Quality</legend>
               <label for="min-bitrate">Min bitrate (kbps)</label>
               <input type="number" id="min-bitrate" min="0" max="1411" step="32" placeholder="—" inputmode="numeric" />
-              <label class="checkbox">
-                <input type="checkbox" id="exclude-gated" />
-                <span>Exclude gated downloads</span>
-              </label>
             </fieldset>
 
             <fieldset class="filter-group">
@@ -139,6 +178,7 @@
       <div class="results-bar">
         <h2 id="results-heading">Results</h2>
         <div class="results-meta" id="results-meta" aria-live="polite"></div>
+        <button type="button" id="add-all" class="btn btn-sm" hidden>+ Add all to crate</button>
         <div class="view-toggle" role="group" aria-label="Result view">
           <button type="button" id="view-cards" class="btn btn-sm is-active" aria-pressed="true">Cards</button>
           <button type="button" id="view-table" class="btn btn-sm" aria-pressed="false">Table</button>
@@ -185,6 +225,32 @@
     <p class="wheel-selected" id="wheel-selected" aria-live="polite"></p>
   </dialog>
 
+  <!-- ============ CONVERTER DIALOG ============ -->
+  <dialog id="convert-dialog" class="dialog" aria-labelledby="convert-title">
+    <div class="dialog-head">
+      <h2 id="convert-title">Audio converter</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog aria-label="Close">✕</button>
+    </div>
+    <p class="hint">Convert a track you've downloaded to the format your DJ software prefers (WAV/AIFF for Serato &amp; rekordbox). Files are processed locally and never leave your machine.</p>
+    <div id="convert-unavailable" class="platform-errors" hidden>
+      <strong>ffmpeg isn't installed.</strong> The converter needs it. On Windows run
+      <code>winget install ffmpeg</code> in PowerShell, then restart the server.
+    </div>
+    <div class="convert-form">
+      <label for="convert-file">Audio file</label>
+      <input type="file" id="convert-file" accept="audio/*,.mp3,.wav,.flac,.aiff,.aif,.m4a,.ogg" />
+      <label for="convert-target">Convert to</label>
+      <select id="convert-target">
+        <option value="wav">WAV (lossless, Serato/rekordbox)</option>
+        <option value="aiff">AIFF (lossless, Apple/rekordbox)</option>
+        <option value="flac">FLAC (lossless, compressed)</option>
+        <option value="mp3">MP3 320kbps</option>
+      </select>
+      <button type="button" id="convert-btn" class="btn btn-primary">Convert &amp; download</button>
+      <p class="hint hint-sm">Note: converting an MP3 to WAV changes the container for compatibility — it can't restore quality lost to MP3 compression.</p>
+    </div>
+  </dialog>
+
   <!-- ============ CRATE DRAWER ============ -->
   <dialog id="crate-drawer" class="drawer" aria-labelledby="crate-title">
     <div class="dialog-head">
@@ -193,6 +259,8 @@
     </div>
     <div class="crate-actions">
       <button type="button" class="btn btn-sm" id="crate-copy">Copy all links</button>
+      <button type="button" class="btn btn-sm" id="crate-tracklist">Copy tracklist</button>
+      <button type="button" class="btn btn-sm" id="crate-openall">Open all pages</button>
       <button type="button" class="btn btn-sm" data-export="m3u">Export M3U</button>
       <button type="button" class="btn btn-sm" data-export="csv">Export CSV</button>
       <button type="button" class="btn btn-sm" data-export="json">Export JSON</button>
@@ -235,6 +303,7 @@
           <li class="m-bpm"></li><li class="m-key"></li><li class="m-genre"></li>
           <li class="m-dur"></li><li class="m-fmt"></li>
         </ul>
+        <button type="button" class="btn btn-ghost btn-sm card-estbpm" hidden>Est. BPM</button>
       </div>
       <div class="card-actions">
         <a class="btn btn-primary btn-sm card-get" target="_blank" rel="noopener"></a>

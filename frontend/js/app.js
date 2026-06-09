@@ -5,6 +5,7 @@ import { crate, favorites, history, filters as filterStore, trackKey } from "./s
 import { camelotLabel, ALL_CAMELOT, compatible } from "./keys.js";
 import { buildWheel } from "./camelot.js";
 import { player, onPlayerEvent } from "./player.js";
+import { estimateBpm } from "./bpm.js";
 import * as ui from "./ui.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -30,6 +31,7 @@ async function init() {
   restoreFilters();
   renderHistory();
   updateCrateCount();
+  updateFavCount();
   wireEvents();
   wirePlayer();
 }
@@ -89,16 +91,27 @@ function setSelectedKey(camelot) {
   $("#key-select").value = camelot || "";
 }
 
+const HIDE_MIX_SECONDS = 570; // 9:30
+
 function gatherFilters() {
+  const customMax = numOrNull("#max-minutes");
+  let maxDuration = customMax ? customMax * 60 : null;
+  if ($("#hide-mixes").checked) {
+    maxDuration = maxDuration ? Math.min(maxDuration, HIDE_MIX_SECONDS) : HIDE_MIX_SECONDS;
+  }
   return {
     bpm_min: numOrNull("#bpm-min"),
     bpm_max: numOrNull("#bpm-max"),
+    known_bpm_only: $("#known-bpm-only").checked,
     key: $("#key-select").value || null,
     harmonic: $("#harmonic-toggle").checked,
     genre: $("#genre").value.trim(),
     format: $("#format-select").value,
     min_bitrate: numOrNull("#min-bitrate"),
-    exclude_gated: $("#exclude-gated").checked,
+    download_types: $$(".dl-type-cb:checked").map((b) => b.value),
+    hide_mixes: $("#hide-mixes").checked,
+    max_minutes: customMax,
+    max_duration_seconds: maxDuration,
     sort_by: $("#sort-select").value,
     max_results: Number($("#max-results").value) || 50,
     platforms: $$("#platform-toggles input:checked").map((b) => b.value),
@@ -109,13 +122,17 @@ function restoreFilters() {
   const f = filterStore.get();
   if (!f) return;
   setVal("#bpm-min", f.bpm_min); setVal("#bpm-max", f.bpm_max);
+  if (f.known_bpm_only !== undefined) $("#known-bpm-only").checked = !!f.known_bpm_only;
   if (f.key) setSelectedKey(f.key);
   $("#harmonic-toggle").checked = !!f.harmonic; state.harmonic = !!f.harmonic;
   setVal("#genre", f.genre); setVal("#format-select", f.format);
   setVal("#min-bitrate", f.min_bitrate);
-  $("#exclude-gated").checked = !!f.exclude_gated;
+  if (Array.isArray(f.download_types) && f.download_types.length) {
+    $$(".dl-type-cb").forEach((b) => { b.checked = f.download_types.includes(b.value); });
+  }
+  if (f.hide_mixes !== undefined) $("#hide-mixes").checked = !!f.hide_mixes;
+  setVal("#max-minutes", f.max_minutes);
   setVal("#sort-select", f.sort_by); setVal("#max-results", f.max_results);
-  syncBpmRanges();
 }
 
 function numOrNull(sel) { const v = $(sel).value; return v === "" ? null : Number(v); }
@@ -140,7 +157,9 @@ async function runSearch(query) {
     genres: f.genre ? [f.genre] : [],
     formats: f.format ? [f.format] : [],
     min_bitrate_kbps: f.min_bitrate,
-    exclude_gated: f.exclude_gated,
+    download_types: f.download_types.length === 3 ? [] : f.download_types,
+    exclude_unknown_bpm: f.known_bpm_only,
+    max_duration_seconds: f.max_duration_seconds,
     sort_by: f.sort_by,
     max_results: f.max_results,
   };
@@ -177,31 +196,47 @@ function applyClientFilters(tracks, f) {
   return tracks;
 }
 
+const cardCallbacks = () => ({
+  onPreview: previewTrack,
+  onAdd: (t) => { if (crate.add(t)) { ui.toast(`Added “${t.title}” to crate`, "success"); updateCrateCount(); } },
+  onFav: (t) => { const on = favorites.toggle(t); updateFavCount(); ui.toast(on ? "Saved to favorites" : "Removed from favorites"); },
+  onEstimateBpm: async (t) => {
+    const bpm = await estimateBpm(t.preview_url);
+    t.bpm = bpm; // cache on the in-memory track so crate/export carry it
+    return bpm;
+  },
+  onEstimateError: (err) => ui.toast(err.message || "Couldn't estimate BPM", "error"),
+});
+
 function renderResults(results) {
+  const meta = [];
+  meta.push(`${state.tracks.length} track${state.tracks.length === 1 ? "" : "s"}`);
+  if (results.search_time_seconds) meta.push(`in ${results.search_time_seconds.toFixed(1)}s`);
+  if (results.bpm_range) {
+    const [lo, hi] = results.bpm_range.split("–");
+    meta.push(lo === hi ? `BPM ${lo}` : `BPM ${results.bpm_range}`);
+  }
+  renderTrackList(meta.join(" · "), "No free tracks matched. Try broadening filters, removing the key, or another genre.");
+}
+
+// Shared renderer for both search results and the favorites view.
+function renderTrackList(metaText, emptyMsg) {
   const cards = $("#results-cards");
   const tbody = $("#results-tbody");
   $("#empty-state").hidden = true;
   $("#loading-state").hidden = true;
+  $("#results-meta").textContent = metaText;
+  ui.announce(`${state.tracks.length} tracks.`);
 
-  const meta = [];
-  meta.push(`${state.tracks.length} track${state.tracks.length === 1 ? "" : "s"}`);
-  if (results.search_time_seconds) meta.push(`in ${results.search_time_seconds.toFixed(1)}s`);
-  if (results.bpm_range) meta.push(`BPM ${results.bpm_range}`);
-  $("#results-meta").textContent = meta.join(" · ");
-  ui.announce(`${state.tracks.length} tracks found.`);
-
-  const cbs = {
-    onPreview: previewTrack,
-    onAdd: (t) => { if (crate.add(t)) { ui.toast(`Added “${t.title}” to crate`, "success"); updateCrateCount(); } },
-    onFav: (t) => { const on = favorites.toggle(t); ui.toast(on ? "Saved to favorites" : "Removed from favorites"); },
-  };
-
+  const cbs = cardCallbacks();
   cards.innerHTML = "";
   tbody.innerHTML = "";
-  if (state.tracks.length === 0) {
+
+  const hasTracks = state.tracks.length > 0;
+  $("#add-all").hidden = !hasTracks;
+  if (!hasTracks) {
     $("#empty-state").hidden = false;
-    $("#empty-state").querySelector("p").innerHTML =
-      "No free tracks matched. Try broadening filters, removing the key, or another genre.";
+    $("#empty-state").querySelector("p").innerHTML = emptyMsg;
     cards.hidden = true;
     $("#results-table-wrap").hidden = true;
     return;
@@ -212,6 +247,17 @@ function renderResults(results) {
     tbody.appendChild(ui.buildRow(t, cbs));
   });
   applyView();
+}
+
+function showFavorites() {
+  state.tracks = favorites.all();
+  $("#platform-errors").hidden = true;
+  $("#query").value = "";
+  renderTrackList(
+    `♥ ${state.tracks.length} saved favorite${state.tracks.length === 1 ? "" : "s"}`,
+    "No favorites yet. Tap the ♥ on any track to save it here.",
+  );
+  $("#results").focus();
 }
 
 function applyView() {
@@ -232,6 +278,11 @@ function setSearchingUI(on) {
     $("#empty-state").hidden = true;
     $("#results-cards").hidden = true;
     $("#results-table-wrap").hidden = true;
+    $("#add-all").hidden = true;
+    const usingBandcamp = $$("#platform-toggles input:checked").some((b) => b.value === "bandcamp");
+    $("#results-meta").textContent = usingBandcamp
+      ? "Searching… Bandcamp digs deep for free tracks, so this can take ~30s."
+      : "Searching…";
     const sk = $("#loading-state");
     sk.hidden = false;
     ui.showSkeletons(sk, 8);
@@ -294,6 +345,14 @@ function fmtTime(s) {
 
 /* ===================== CRATE ===================== */
 function updateCrateCount() { $("#crate-count").textContent = String(crate.all().length); }
+function updateFavCount() { $("#fav-count").textContent = String(favorites.all().length); }
+
+function addAllToCrate() {
+  let added = 0;
+  state.tracks.forEach((t) => { if (crate.add(t)) added++; });
+  updateCrateCount();
+  ui.toast(added ? `Added ${added} track${added === 1 ? "" : "s"} to crate` : "All already in crate", added ? "success" : "");
+}
 
 function refreshCrateDrawer() {
   ui.renderCrate($("#crate-list"), $("#crate-empty"), {
@@ -313,13 +372,33 @@ async function exportCrate(format) {
   }
 }
 
+function copyToClipboard(text, okMsg) {
+  navigator.clipboard.writeText(text)
+    .then(() => ui.toast(okMsg, "success"))
+    .catch(() => ui.toast("Clipboard blocked by browser", "error"));
+}
+
 function copyCrateLinks() {
   const tracks = crate.all();
   if (tracks.length === 0) { ui.toast("Your crate is empty", "error"); return; }
-  const text = tracks.map((t) => t.download_url || t.url).join("\n");
-  navigator.clipboard.writeText(text)
-    .then(() => ui.toast("Copied all links to clipboard", "success"))
-    .catch(() => ui.toast("Clipboard blocked by browser", "error"));
+  copyToClipboard(tracks.map((t) => t.download_url || t.url).join("\n"), "Copied all links");
+}
+
+function copyTracklist() {
+  const tracks = crate.all();
+  if (tracks.length === 0) { ui.toast("Your crate is empty", "error"); return; }
+  const lines = tracks.map((t, i) => {
+    const tags = [t.camelot_key, t.bpm ? `${Math.round(t.bpm)} BPM` : null].filter(Boolean).join(", ");
+    return `${i + 1}. ${t.artist} - ${t.title}${tags ? ` [${tags}]` : ""}`;
+  });
+  copyToClipboard(lines.join("\n"), "Copied tracklist");
+}
+
+function openAllPages() {
+  const tracks = crate.all();
+  if (tracks.length === 0) { ui.toast("Your crate is empty", "error"); return; }
+  if (tracks.length > 8 && !confirm(`Open ${tracks.length} tabs?`)) return;
+  tracks.forEach((t) => window.open(t.download_url || t.url, "_blank", "noopener"));
 }
 
 /* ===================== HISTORY ===================== */
@@ -337,14 +416,39 @@ function renderHistory() {
   });
 }
 
-/* ===================== EVENTS ===================== */
-function syncBpmRanges() {
-  const min = $("#bpm-min"), max = $("#bpm-max");
-  const minR = $("#bpm-min-range"), maxR = $("#bpm-max-range");
-  if (min.value) minR.value = min.value;
-  if (max.value) maxR.value = max.value;
+/* ===================== CONVERTER ===================== */
+function wireConverter() {
+  const dlg = $("#convert-dialog");
+  $("#convert-toggle").addEventListener("click", async () => {
+    dlg.showModal();
+    try {
+      const info = await api.convertAvailable();
+      $("#convert-unavailable").hidden = info.available;
+      $("#convert-btn").disabled = !info.available;
+    } catch (_) {
+      $("#convert-unavailable").hidden = false;
+      $("#convert-btn").disabled = true;
+    }
+  });
+
+  $("#convert-btn").addEventListener("click", async () => {
+    const fileInput = $("#convert-file");
+    const file = fileInput.files[0];
+    if (!file) { ui.toast("Choose an audio file first", "error"); return; }
+    const btn = $("#convert-btn");
+    btn.disabled = true; btn.textContent = "Converting…";
+    try {
+      await api.convertFile(file, $("#convert-target").value);
+      ui.toast("Converted — check your downloads", "success");
+    } catch (err) {
+      ui.toast(err.message || "Conversion failed", "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "Convert & download";
+    }
+  });
 }
 
+/* ===================== EVENTS ===================== */
 function wireEvents() {
   $("#search-form").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -358,15 +462,20 @@ function wireEvents() {
   });
   $("#harmonic-toggle").addEventListener("change", (e) => { state.harmonic = e.target.checked; });
 
-  // BPM range sliders <-> number inputs
-  $("#bpm-min-range").addEventListener("input", (e) => { $("#bpm-min").value = e.target.value; });
-  $("#bpm-max-range").addEventListener("input", (e) => { $("#bpm-max").value = e.target.value; });
-  $("#bpm-min").addEventListener("input", syncBpmRanges);
-  $("#bpm-max").addEventListener("input", syncBpmRanges);
+  // BPM preset chips
+  $$(".bpm-presets .chip").forEach((chip) => chip.addEventListener("click", () => {
+    const [lo, hi] = (chip.dataset.bpm || "").split("-");
+    $("#bpm-min").value = lo || "";
+    $("#bpm-max").value = hi || "";
+  }));
 
   // View toggle
   $("#view-cards").addEventListener("click", () => { state.view = "cards"; applyView(); });
   $("#view-table").addEventListener("click", () => { state.view = "table"; applyView(); });
+
+  // Favorites view + add-all
+  $("#favorites-toggle").addEventListener("click", showFavorites);
+  $("#add-all").addEventListener("click", addAllToCrate);
 
   // Wheel dialog
   const wheelDlg = $("#wheel-dialog");
@@ -375,9 +484,17 @@ function wireEvents() {
   // Crate drawer
   const crateDlg = $("#crate-drawer");
   $("#crate-toggle").addEventListener("click", () => { refreshCrateDrawer(); crateDlg.showModal(); });
-  $("#crate-clear").addEventListener("click", () => { crate.clear(); refreshCrateDrawer(); updateCrateCount(); });
+  $("#crate-clear").addEventListener("click", () => {
+    if (crate.all().length && !confirm("Clear the whole crate?")) return;
+    crate.clear(); refreshCrateDrawer(); updateCrateCount();
+  });
   $("#crate-copy").addEventListener("click", copyCrateLinks);
+  $("#crate-tracklist").addEventListener("click", copyTracklist);
+  $("#crate-openall").addEventListener("click", openAllPages);
   $$("[data-export]").forEach((b) => b.addEventListener("click", () => exportCrate(b.dataset.export)));
+
+  // Converter dialog
+  wireConverter();
 
   // Generic dialog close buttons + backdrop click
   $$("[data-close-dialog]").forEach((b) => b.addEventListener("click", (e) => e.target.closest("dialog").close()));

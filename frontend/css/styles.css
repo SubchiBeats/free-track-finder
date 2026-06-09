@@ -310,16 +310,56 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .toast.is-success { border-color: var(--accent); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
+/* ---- New: header actions, hints, presets, converter, crate flow ---- */
+.header-actions { display: flex; gap: 0.5rem; }
+.hint-sm { font-size: 0.78rem; margin-top: 0.2rem; }
+.bpm-presets { margin: 0.1rem 0; }
+.bpm-presets .chip { font-size: 0.76rem; padding: 0.25rem 0.55rem; }
+.card-estbpm { align-self: flex-start; margin-top: 0.5rem; font-size: 0.76rem; }
+
+.convert-form { display: flex; flex-direction: column; gap: 0.55rem; margin-top: 0.6rem; }
+.convert-form input[type="file"] {
+  font: inherit; color: var(--text-dim); background: var(--bg-elev-2);
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); padding: 0.7rem;
+}
+.convert-form select {
+  font: inherit; background: var(--bg-elev-2); border: 1px solid var(--border-strong);
+  color: var(--text); border-radius: var(--radius-sm); padding: 0.55rem 0.6rem;
+}
+.platform-errors code, .convert-form code, .hint code {
+  background: var(--bg); border: 1px solid var(--border-strong); border-radius: 4px;
+  padding: 0.05rem 0.35rem; font-size: 0.85em;
+}
+
+.crate-flow {
+  font-size: 0.72rem; text-align: center; padding: 0.1rem; color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+.crate-flow.flow-ok { color: var(--accent-strong); }
+.crate-flow.flow-warn { color: var(--warn); }
+
 /* ---- Footer ---- */
 .site-footer { max-width: var(--maxw); margin: 0 auto; padding: 1rem var(--pad) 2rem; color: var(--text-faint); font-size: 0.8rem; text-align: center; }
 
 /* ---- Responsive ---- */
+@media (max-width: 620px) {
+  .site-header { flex-wrap: wrap; }
+  .header-actions { flex-wrap: wrap; width: 100%; }
+  .header-actions .btn { flex: 1; justify-content: center; }
+}
+
 @media (max-width: 560px) {
   .results-grid { grid-template-columns: 1fr 1fr; }
   .player-info { max-width: 110px; }
   .player-vol { display: none; }
   .search-bar { flex-direction: column; }
   .search-bar .btn-primary { width: 100%; justify-content: center; }
+  .results-bar { gap: 0.5rem; }
+  .results-bar h2 { width: 100%; }
+}
+
+@media (max-width: 400px) {
+  .results-grid { grid-template-columns: 1fr; }
 }
 
 /* ---- Reduced motion ---- */

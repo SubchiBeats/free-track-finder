@@ -28,6 +28,8 @@ class TrackFilter:
     max_duration_seconds: Optional[float] = None
     quality_tiers: list[str] = field(default_factory=list)  # "lossless", "high", "medium"
     exclude_gated: bool = False  # Skip gated downloads
+    download_types: list[str] = field(default_factory=list)  # keep only these download types
+    exclude_unknown_bpm: bool = False  # drop tracks with no BPM (only when a BPM bound is set)
     platforms: list[str] = field(default_factory=list)
 
     def apply(self, tracks: list[Track]) -> list[Track]:
@@ -36,8 +38,13 @@ class TrackFilter:
 
     def _matches(self, track: Track) -> bool:
         """Check if a single track passes all active filters."""
-        # BPM range
-        if not track.matches_bpm_range(self.bpm_min, self.bpm_max):
+        # BPM range. Tracks with unknown BPM pass by default (most platforms
+        # don't tag BPM); the user can opt to exclude them via exclude_unknown_bpm.
+        has_bpm_bound = self.bpm_min is not None or self.bpm_max is not None
+        if track.bpm is None:
+            if has_bpm_bound and self.exclude_unknown_bpm:
+                return False
+        elif not track.matches_bpm_range(self.bpm_min, self.bpm_max):
             return False
 
         # Musical key
@@ -88,6 +95,10 @@ class TrackFilter:
         if self.exclude_gated and track.download_type.value == "gated":
             return False
 
+        # Keep only selected download types (when specified)
+        if self.download_types and track.download_type.value not in self.download_types:
+            return False
+
         # Platform filter
         if self.platforms and track.platform.value not in self.platforms:
             return False
@@ -108,6 +119,7 @@ class TrackFilter:
             self.max_duration_seconds is not None,
             len(self.quality_tiers) > 0,
             self.exclude_gated,
+            len(self.download_types) > 0,
             len(self.platforms) > 0,
         ])
 

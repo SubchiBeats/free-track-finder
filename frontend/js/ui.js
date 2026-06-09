@@ -2,6 +2,7 @@
 // Pure-ish DOM construction — event wiring lives in app.js via callbacks.
 
 import { crate, favorites, trackKey } from "./store.js";
+import { compatible } from "./keys.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -73,6 +74,25 @@ export function buildCard(track, callbacks) {
   if (track.preview_url) {
     playBtn.hidden = false;
     playBtn.addEventListener("click", () => callbacks.onPreview(track, playBtn));
+  }
+
+  // Estimate-BPM button (only useful when there's a preview and no BPM yet)
+  const estBtn = $(".card-estbpm", tpl);
+  if (track.preview_url && !track.bpm && callbacks.onEstimateBpm) {
+    estBtn.hidden = false;
+    estBtn.addEventListener("click", async () => {
+      estBtn.disabled = true;
+      estBtn.textContent = "Analysing…";
+      try {
+        const bpm = await callbacks.onEstimateBpm(track);
+        $(".m-bpm", tpl).textContent = `~${bpm} BPM`;
+        estBtn.hidden = true;
+      } catch (err) {
+        estBtn.disabled = false;
+        estBtn.textContent = "Est. BPM";
+        callbacks.onEstimateError && callbacks.onEstimateError(err);
+      }
+    });
   }
 
   // Get / page
@@ -158,7 +178,22 @@ export function renderCrate(listEl, emptyEl, callbacks) {
   const items = crate.all();
   listEl.innerHTML = "";
   emptyEl.hidden = items.length > 0;
-  items.forEach((t) => {
+  items.forEach((t, idx) => {
+    // Harmonic-flow hint: is this track compatible with the previous one?
+    if (idx > 0) {
+      const prev = items[idx - 1];
+      if (prev.camelot_key && t.camelot_key) {
+        const ok = compatible(prev.camelot_key).includes(t.camelot_key);
+        const flow = document.createElement("li");
+        flow.className = `crate-flow ${ok ? "flow-ok" : "flow-warn"}`;
+        flow.setAttribute("aria-hidden", "true");
+        flow.textContent = ok
+          ? `↕ harmonic: ${prev.camelot_key} → ${t.camelot_key} ✓`
+          : `↕ key jump: ${prev.camelot_key} → ${t.camelot_key}`;
+        listEl.appendChild(flow);
+      }
+    }
+
     const li = document.createElement("li");
     li.className = "crate-item";
 

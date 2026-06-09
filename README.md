@@ -87,24 +87,33 @@ ftf serve
 
 Features:
 
-- **Search + filter panel** — BPM range sliders, Camelot key selector, genre,
-  format, platform toggles, min bitrate, sort, max results.
+- **Search + filter panel** — BPM range with genre presets, Camelot key
+  selector, genre, format, platform toggles, min bitrate, sort, and max results.
+- **DJ-smart filters** — filter by **download type** (direct / name-your-price /
+  gated), **hide long DJ mixes** (over 9:30 by default, or a custom max length),
+  and an **“only known BPM”** toggle.
 - **Result cards & table view** — artwork, BPM, key + Camelot, genre, duration,
   quality/download-type badges, a prominent Get button and an Open-page link.
+- **Estimate BPM** — for tracks that don't tag a tempo (most SoundCloud
+  uploads), analyse the preview clip in-browser to get an approximate BPM.
 - **Interactive Camelot wheel** — click a key to filter to harmonically
   compatible keys for smooth mixing.
 - **In-browser preview player** — Web Audio API playback where preview streams
   are available (Bandcamp directly; SoundCloud resolved server-side).
-- **Crate / set builder** — add tracks, reorder, "Copy all links", and export
-  the crate as CSV / JSON / M3U straight from the browser.
-- **Saved searches, favorites & history** — persisted in `localStorage`, no DB.
+- **Crate / set builder** — add tracks (or “add all”), reorder, see
+  **harmonic-flow hints** between consecutive tracks, copy all links, copy a
+  formatted tracklist, open all pages, and export the crate as CSV / JSON / M3U.
+- **Audio converter** — convert a downloaded track to MP3 / WAV / FLAC / AIFF
+  for Serato / rekordbox. Runs locally via ffmpeg (`winget install ffmpeg`).
+- **Saved favorites, searches & history** — persisted in `localStorage`, no DB.
 - **Accessible (WCAG 2.1 AA)** — semantic landmarks, full keyboard navigation,
   visible focus styles, ARIA labels, screen-reader announcements, and
   `prefers-reduced-motion` support. Fully responsive / mobile-friendly.
 
 The backend exposes a small JSON API (also browsable at `/docs`):
 `GET /api/platforms`, `POST /api/search`, `GET /api/track`,
-`GET /api/keys/compatible`, `GET /api/stream`, `POST /api/export`.
+`GET /api/keys/compatible`, `GET /api/stream`, `GET /api/audio`,
+`POST /api/export`, `GET /api/convert/available`, and `POST /api/convert`.
 
 > GitHub Pages is static-only and can't host the Python backend. To deploy
 > publicly later, use a free Python host (Render / Railway / Fly / HF Spaces).
