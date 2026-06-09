@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "free-track-finder"
-version = "0.1.0"
+version = "0.2.0"
 description = "Find legitimately free DJ tracks across SoundCloud, Bandcamp, and gated platforms"
 readme = "README.md"
 license = {text = "MIT"}
@@ -50,6 +50,9 @@ Issues = "https://github.com/SubchiBeats/free-track-finder/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"freetracks.web" = ["static/*", "static/css/*", "static/js/*"]
 
 [tool.ruff]
 line-length = 100

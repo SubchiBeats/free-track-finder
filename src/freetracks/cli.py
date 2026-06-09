@@ -37,7 +37,7 @@ console = Console()
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="Free Track Finder")
+@click.version_option(version="0.2.0", prog_name="Free Track Finder")
 def cli():
     """🎧 Free Track Finder — Discover legitimately free DJ tracks."""
     pass

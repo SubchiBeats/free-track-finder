@@ -39,13 +39,14 @@ from freetracks.web.schemas import ExportRequest, SearchRequest
 
 logger = logging.getLogger(__name__)
 
-# Project root holds the frontend/ directory (src/freetracks/web/app.py -> root).
-_FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
+# The frontend ships as package data under web/static so it's available whether
+# the package is run from source or installed (pip/pipx).
+_FRONTEND_DIR = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(
     title="Free Track Finder",
     description="Find legitimately free DJ tracks across SoundCloud, Bandcamp, and Hypeddit.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 app.add_middleware(
