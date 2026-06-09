@@ -7,6 +7,7 @@ All commands are async under the hood — the CLI wraps them with asyncio.run().
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 
 import click
@@ -22,6 +23,15 @@ from freetracks.core.models import AudioFormat, DownloadType, SearchResults
 from freetracks.export import export_csv, export_json, export_m3u
 from freetracks.platforms import PLATFORM_NAMES
 from freetracks.utils.formatting import truncate
+
+# Windows consoles often default to a legacy codepage (cp1252) that can't encode
+# the emoji/Unicode in our output, which crashes Click's help and Rich rendering.
+# Force UTF-8 on the standard streams so the CLI works on any terminal.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):  # pragma: no cover - non-reconfigurable stream
+        pass
 
 console = Console()
 
